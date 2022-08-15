@@ -4,70 +4,65 @@ import socket as s
 #https://docs.python.org/ko/3/library/socket.html
 
 
-# ÇÏµåÄÚµù ±¸°£
-ip = '' #¼ÒÄÏÅë½ÅÀ» ÇÒ ´ë»ó±â±âÀÇ IP (''·Î µÑ °æ¿ì, ¸ğµç host¸¦ ÀÇ¹Ì / ´Ü, ÀÌ °æ¿ì send ´ë½Å sendto·Î addr¸¦ ¸í½ÃÇØÁà¾ß ÇÔ)
-port = 201701 #ÀÓÀÇ ÁöÁ¤ (1024 ~ 49151¿¡¼­ »ç¿ëÇÒ °Í)
-send_data = '¿©±â¿¡ º¸³¾ µ¥ÀÌÅÍ¸¦ ÀÔ·ÂÇÏ¼¼¿ä.'
-interval = 1 #¼Û¼ö½ÅÇÒ ½Ã°£°£°İ(sec)
-data_size = 1024 #Àü¼Û¹ŞÀ» µ¥ÀÌÅÍ Å©±â
+# í•˜ë“œì½”ë”© êµ¬ê°„
+ip = '' #ì†Œì¼“í†µì‹ ì„ í•  ëŒ€ìƒê¸°ê¸°ì˜ IP (''ë¡œ ë‘˜ ê²½ìš°, ëª¨ë“  hostë¥¼ ì˜ë¯¸ / ë‹¨, ì´ ê²½ìš° send ëŒ€ì‹  sendtoë¡œ addrë¥¼ ëª…ì‹œí•´ì¤˜ì•¼ í•¨)
+port = 3022 #ì„ì˜ ì§€ì • (1024 ~ 49151ì—ì„œ ì‚¬ìš©í•  ê²ƒ)
+send_data = "This is the server message.\nì´ê²ƒì€ ì„œë²„ ë©”ì„¸ì§€ì…ë‹ˆë‹¤.\n<by laptop>"
+interval = 1 #ì†¡ìˆ˜ì‹ í•  ì‹œê°„ê°„ê²©(sec)
+data_size = 1024 #ì „ì†¡ë°›ì„ ë°ì´í„° í¬ê¸°
 
-server_socket = s.socket(s.AF_INET, s.SOCK_DGRAM) #IPv4, UDP ÇÁ·ÎÅäÄİ ¹æ½ÄÀÇ ¼ÒÄÏ °´Ã¼ »ı¼º
-server_socket.bind(('',port)) #ÇØ´ç ip/port¿¡ ´ëÇØ ¼ÒÄÏ °´Ã¼¸¦ ¿¬°á
-server_socket.listen(1) #¿¬°áÀ» Çã¿ëÇÒ clientÀÇ ¼ö
+# server_socket = s.socket(s.AF_INET, s.SOCK_DGRAM) #IPv4, UDP í”„ë¡œí† ì½œ ë°©ì‹ì˜ ì†Œì¼“ ê°ì²´ ìƒì„±
+server_socket = s.socket(s.AF_INET, s.SOCK_STREAM)
+server_socket.bind(('',port)) #í•´ë‹¹ ip/portì— ëŒ€í•´ ì†Œì¼“ ê°ì²´ë¥¼ ì—°ê²°
+server_socket.listen(1) #ì—°ê²°ì„ í—ˆìš©í•  clientì˜ ìˆ˜
 
 '''
-=======================================Âü°í===============================
-socket(): ¼ÒÄÏÀ» »ı¼ºÇÏ´Â ÇÔ¼ö
+=======================================ì°¸ê³ ===============================
+socket(): ì†Œì¼“ì„ ìƒì„±í•˜ëŠ” í•¨ìˆ˜
     SOCKET socket(int family=AF_INET,int type=SOCK_STREAM,int proto=0);
-    ½ÇÆĞ ½Ã: -1(SOCKET_ERROR) ¹İÈ¯
-    family: ³×Æ®¿öÅ© ÁÖ¼Ò Ã¼°è
+    ì‹¤íŒ¨ ì‹œ: -1(SOCKET_ERROR) ë°˜í™˜
+    family: ë„¤íŠ¸ì›Œí¬ ì£¼ì†Œ ì²´ê³„
         #define AF_INET       2         //IPv4
         #define AF_INET6      23        //IPv6
-    type: ¼ÒÄÏ Å¸ÀÔ
-        #define SOCK_STREAM   1         //½ºÆ®¸² , TCP ÇÁ·ÑÅäÄİÀÇ Àü¼Û ¹æ½Ä
-        #define SOCK_DGRAM    2         //µ¥ÀÌÅÍ ±×·¥, UDP ÇÁ·ÎÅäÄİÀÇ Àü¼Û ¹æ½Ä
-        #define SOCK_RAW      3         //RAW ¼ÒÄÏ, °¡°øÇÏÁö ¾ÊÀº ¼ÒÄÏ
-    proto: ÇÁ·ÎÅäÄİ
-        #define IPPROTO_TCP   6         //TCP ÇÁ·ÎÅäÄİ
-        #define IPPROTO_UDP   17        //UDP ÇÁ·ÎÅäÄİ
+    type: ì†Œì¼“ íƒ€ì…
+        #define SOCK_STREAM   1         //ìŠ¤íŠ¸ë¦¼ , TCP í”„ë¡¤í† ì½œì˜ ì „ì†¡ ë°©ì‹
+        #define SOCK_DGRAM    2         //ë°ì´í„° ê·¸ë¨, UDP í”„ë¡œí† ì½œì˜ ì „ì†¡ ë°©ì‹
+        #define SOCK_RAW      3         //RAW ì†Œì¼“, ê°€ê³µí•˜ì§€ ì•Šì€ ì†Œì¼“
+    proto: í”„ë¡œí† ì½œ
+        #define IPPROTO_TCP   6         //TCP í”„ë¡œí† ì½œ
+        #define IPPROTO_UDP   17        //UDP í”„ë¡œí† ì½œ
         #define IPPROTO_RAW   255       //RAW
 ==========================================================================
 '''
 
-# µ¥ÀÌÅÍ¸¦ Àü¼Û¹ŞÀ» ÇÔ¼ö
-def recv():
-    global client_socket
-    recv_list = list()
-    while True: 
-        try: recv_list.append(client_socket.recv(data_size).decode('utf-8')) #ÇÑ¹ø¿¡ ¼ö½ÅÇÒ ÃÖ´ë µ¥ÀÌÅÍ¾çÀ» paramÀ¸·Î ÁöÁ¤ °¡´É/2ÀÇ °ÅµìÁ¦°ö ÀÔ·Â
-        except Exception: break
-    return "".join(recv_list)
-
+# threadì—ì„œ êµ¬ë™í•  í•¨ìˆ˜
 def main_func():
-        print("[¿¬°á ½Ãµµ Áß...]")
-        client_socket, client_addr = server_socket.accept() #¿¬°áµÈ clientÀÇ ¼ÒÄÏ °´Ã¼, clientÀÇ ÁÖ¼Ò¸¦ ¹İÈ¯
+        print("[ì—°ê²° ì‹œë„ ì¤‘...]")
+        client_socket, client_addr = server_socket.accept() #ì—°ê²°ëœ clientì˜ ì†Œì¼“ ê°ì²´, clientì˜ ì£¼ì†Œë¥¼ ë°˜í™˜
         
-        print("[¿¬°á ¼º°ø with {}]".format(client_addr))
-        recv_data = recv() #client·ÎºÎÅÍ µ¥ÀÌÅÍ¸¦ ¹ŞÀ½ 
+        print("[ì—°ê²° ì„±ê³µ with {}]".format(client_addr))
+        try: recv_data = client_socket.recv(data_size).decode('utf-8') #í•œë²ˆì— ìˆ˜ì‹ í•  ìµœëŒ€ ë°ì´í„°ì–‘ì„ paramìœ¼ë¡œ ì§€ì • ê°€ëŠ¥/2ì˜ ê±°ë“­ì œê³± ì…ë ¥
+        except Exception as e: print("error:",e)
         
-        print("[¼ö½ÅµÈ µ¥ÀÌÅÍ with {}]".format(client_addr))
+        print("[ìˆ˜ì‹ ëœ ë°ì´í„° with {}]".format(client_addr))
         print(recv_data)
         
-        print("\n[¼Û½ÅÇÒ µ¥ÀÌÅÍ]")
+        print("\n[ì†¡ì‹ í•  ë°ì´í„°]")
         print(send_data)
         
-        client_socket.send(send_data.encode('utf-8')) #¿¬°áµÈ client¿¡°Ô µ¥ÀÌÅÍ¸¦ Àü¼Û
-        print("\n[µ¥ÀÌÅÍ ¼Û½Å ¿Ï·á]")
+        client_socket.send(send_data.encode('utf-8')) #ì—°ê²°ëœ clientì—ê²Œ ë°ì´í„°ë¥¼ ì „ì†¡
+        print("\n[ë°ì´í„° ì†¡ì‹  ì™„ë£Œ]")
         
-        time.sleep(interval) #Àá½Ã ´ë±â ÈÄ ¼Û¼ö½Å (¿À¹öÇìµå¸¦ ÁÙÀÌ±â À§ÇÔ)
+        time.sleep(interval) #ì ì‹œ ëŒ€ê¸° í›„ ì†¡ìˆ˜ì‹  (ì˜¤ë²„í—¤ë“œë¥¼ ì¤„ì´ê¸° ìœ„í•¨)
 
 
 err_cnt = 0
 while True:
     try:
         #recvThread create
-        recvThread = threading.Thread(target=main_func) #recvÇÔ¼ö¸¦ ½ÇÇàÇÒ ¶§¸¶´Ù º°µµÀÇ ½º·¹µå¸¦ »ı¼º ÈÄ ½ÇÇà
+        recvThread = threading.Thread(target=main_func) #recví•¨ìˆ˜ë¥¼ ì‹¤í–‰í•  ë•Œë§ˆë‹¤ ë³„ë„ì˜ ìŠ¤ë ˆë“œë¥¼ ìƒì„± í›„ ì‹¤í–‰
         recvThread.start()
+        recvThread.join()
         
     except:
         print("error! retry! (try cnt: {}sec)".format(err_cnt))
@@ -75,10 +70,10 @@ while True:
         
         err_cnt += 1
         if err_cnt > 15:
-            print("¿¡·¯°¡ 15ÃÊ ÀÌ»ó ¼öÁ¤µÇÁö ¾Ê¾Ò½À´Ï´Ù. ¿¬°áÀ» Áß´ÜÇÕ´Ï´Ù.")
+            print("ì—ëŸ¬ê°€ 15ì´ˆ ì´ìƒ ìˆ˜ì •ë˜ì§€ ì•Šì•˜ìŠµë‹ˆë‹¤. ì—°ê²°ì„ ì¤‘ë‹¨í•©ë‹ˆë‹¤.")
             server_socket.close()
             break
         
-print("server¸¦ ÁßÁöÇÕ´Ï´Ù.")
+print("serverë¥¼ ì¤‘ì§€í•©ë‹ˆë‹¤.")
 
     
