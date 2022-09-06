@@ -3,11 +3,19 @@ import adafruit_ads1x15.ads1115 as ADS
 from adafruit_ads1x15.analog_in import AnalogIn
 import board
 import busio
+import picamera
 from datetime import datetime
 from time import sleep 
+from time import time
 from curses.ascii import isdigit #문자열이 숫자로 구성되었는지 확인하는 함수
 import threading 
 import socket as s
+import cv2
+import numpy as np
+from datetime import datetime
+import urllib.request
+import glob
+import os
 
 
 #========================================목차===========================================
@@ -58,6 +66,9 @@ send_err = False #thread_send가 비정상적으로 종료되었는지
 video_send_err = False #thread_video_send가 비정상적으로 종료되었는지
 picture_send_err = False #thread_picture_send가 비정상적으로 종료되었는지
 sound_send_err = False #thread_sound_send가 비정상적으로 종료되었는지
+
+camera = picamera.PiCamera() #웹캠(식물 전방 카메라)
+camera.resolution = (1920, 1080) #해상도 설정
 
 
 
@@ -141,6 +152,32 @@ def moter_stop(ENA, IN1, IN2):
     GPIO.output(ENA, 0)
     GPIO.output(IN1, 0)
     GPIO.output(IN2, 0)
+
+
+#웹캠으로 사진을 찍는 함수
+def capture_plant():
+    global camera
+    
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    camera.capture('/home/kangmugu/CAMPictures/'+now+'.png') #해당 경로에 캡처사진 저장
+
+
+#동영상 스트림이 정상 작동하는지 확인하는 함수
+def url_on(url):
+    try:
+        urllib.request.urlopen(url, timeout=2)
+        return True
+    except:
+        return False
+
+
+def remove_movie():
+    Max_Movies = 10 # 영상 폴더 내 최대 영상 개수
+    list_of_files = glob.glob('/home/kangmugu/Movies/*.mp4') # * means all if need specific format then *.csv
+
+    oldest_file = min(list_of_files, key=os.path.getctime)
+    if len(list_of_files) > Max_Movies:
+        os.remove(oldest_file)
 
 
 #시스템 전역변수들을 출력하는 함수
@@ -420,6 +457,105 @@ thread_sensor = threading.Thread(target=_sensor)
 thread_sensor.daemon = True
 
 
+#동작 감지용 스레드(유지)
+def _motion():
+    global is_end
+    thresh = 25 #문턱값
+    max_diff = 300 #차이 허용 최대값
+    a, b, c = None, None, None #프레임을 담을 변수
+    start_time = None #시작 시간을 저장할 변수
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v') #저장 형식
+    record = False
+    detected = False
+    url = "http://192.168.0.194:8081/?action=stream"
+    
+    append_message("[_motion] <시작>")
+    
+    os.system('sh mjpg.sh &')
+    append_message("[_motion] 스트리밍 프로그램 시작")
+
+    while not is_end and not url_on(url):
+        append_message("[_motion] 스트리밍 연결 시도 중..")
+        sleep(1)
+                        
+    cap = cv2.VideoCapture(url)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    while not is_end and not cap.isOpened():
+        cap = cv2.VideoCapture(url)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    
+    append_message("[_motion] 스트리밍 연결 성공")
+    ret, a = cap.read()    #ret: 정상적으로 읽어왔는지, a: 읽어온 프레임
+    ret, b = cap.read()    
+    
+    while not is_end and ret:        
+        ret, c = cap.read()        
+        draw = c.copy()        
+        if not ret:            
+            ret, c = cap.read()        
+            draw = c.copy()         
+        
+        a_gray = cv2.cvtColor(a, cv2.COLOR_BGR2GRAY) #a 프레임을 흑백으로 색변환     
+        b_gray = cv2.cvtColor(b, cv2.COLOR_BGR2GRAY) #b 프레임을 흑백으로 색변환
+        c_gray = cv2.cvtColor(c, cv2.COLOR_BGR2GRAY) #c 프레임을 흑백으로 색변환
+        
+        diff1 = cv2.absdiff(a_gray, b_gray) #a,b에 대한 차이 프레임       
+        diff2 = cv2.absdiff(b_gray, c_gray) #b,c에 대한 차이 프레임
+        
+        ret, diff1_t = cv2.threshold(diff1, thresh, 255, cv2.THRESH_BINARY) #문턱값 미만 픽셀을 0 처리한 프레임      
+        ret, diff2_t = cv2.threshold(diff2, thresh, 255, cv2.THRESH_BINARY) #문턱값 미만 픽셀을 0 처리한 프레임        
+        
+        diff = cv2.bitwise_and(diff1_t, diff2_t) #두 프레임의 각 픽셀에 대한 and 연산        
+        
+        k = cv2.getStructuringElement(cv2.MORPH_CROSS, (3, 3)) #커널의 형태, 커널의 크기 지정       
+        diff = cv2.morphologyEx(diff, cv2.MORPH_OPEN, k) #모폴로지 연산을 통한 노이즈 제거        
+        
+        diff_cnt = cv2.countNonZero(diff)
+        
+        if diff_cnt > max_diff:            
+            nzero = np.nonzero(diff)            
+            cv2.rectangle(draw, #변환 전 이미지 프레임
+                        (min(nzero[1]), min(nzero[0])), #diff에서 0이 아닌 값 중 행, 열이 가장 작은 포인트  
+                        (max(nzero[1]), max(nzero[0])), #diff에서 0이 아닌 값 중 행, 열이 가장 큰 포인트      
+                        (0, 255, 0), #사각형을 그릴 색상 값 
+                        2) #thickness            
+            
+            cv2.putText(draw, "Detected", (10, 30), cv2.FONT_HERSHEY_DUPLEX, 0.5, (0, 0, 255))
+            detected = True
+            
+        movietime = datetime.now().strftime("%Y-%m-%d   %H:%M:%S")
+        cv2.putText(draw, movietime, (10, 470), cv2.FONT_HERSHEY_DUPLEX, 0.5, (100, 100, 100))
+        cv2.imshow('motion', draw)
+        append_message("[_motion] <감지>")
+        
+        now = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        if detected and not record:
+            record = True
+            start_time = time()
+            video = cv2.VideoWriter("/home/kangmugu/Movies/" +str(now)+ ".mp4", fourcc, 15.0, (draw.shape[1], draw.shape[0]))
+            
+        if 'video' in locals() and time() > (start_time + 10):
+            record = False
+            detected = False
+            video.release()
+            
+        if record: video.write(draw)
+            
+        a = b
+        b = c
+        
+        if cv2.waitKey(1) & 0xFF == 27: break
+        remove_movie()
+
+    os.system('sudo killall mjpg_streamer')
+    append_message("[_motion] <종료>")
+
+thread_motion = threading.Thread(target=_motion)
+thread_motion.daemon = True
 
 #========================================7) 실행 구간 ============================================
 print("[_main] <시작>")
@@ -430,6 +566,7 @@ thread_connect.join()
 thread_receive.start()
 thread_send.start()
 thread_sensor.start()
+thread_motion.start()
 
 while not is_end:
     
