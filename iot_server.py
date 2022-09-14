@@ -52,7 +52,6 @@ humity_real = -1   #실제 습도
 water_moter_err = False #수위모터에 에러가 있는지
 cooler_moter_err = False #스프링쿨러에 에러가 있는지
 
-siren_option = None #경보에 대한 정보
 capture_option = None #영상을 캡처하여 저장/전송할 주기
 
 server_socket = None #서버 소켓 객체
@@ -69,6 +68,10 @@ sound_send_err = False #thread_sound_send가 비정상적으로 종료되었는�
 
 camera = picamera.PiCamera() #웹캠(식물 전방 카메라)
 camera.resolution = (1920, 1080) #해상도 설정
+
+directory_picture = '/home/kangmugu/CAMPictures/' #캡처한 사진을 저장할 경로
+directory_movie = '/home/kangmugu/Movies/' #모션감지 영상을 저장할 경로
+url_stream = "http://192.168.0.194:8081/?action=stream" #동영상 스트림 url
 
 
 
@@ -135,7 +138,7 @@ def append_message(msg):
     _message_queue.append("{} {}".format(cur_time,msg))
 
 
-#모터를 회전시키는 함수
+#모터를 회전시키는 함수                     #수정해야함!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 def moter_run(ENA, IN1, IN2, dic): 
     #ENA, IN1, IN2: 회전할 모터
     #dic: 회전방향(True 정방향, False 역방향)
@@ -157,9 +160,10 @@ def moter_stop(ENA, IN1, IN2):
 #웹캠으로 사진을 찍는 함수
 def capture_plant():
     global camera
+    global directory_picture
     
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
-    camera.capture('/home/kangmugu/CAMPictures/'+now+'.png') #해당 경로에 캡처사진 저장
+    camera.capture(directory_picture + now+'.png') #해당 경로에 캡처사진 저장
 
 
 #동영상 스트림이 정상 작동하는지 확인하는 함수
@@ -173,7 +177,7 @@ def url_on(url):
 
 def remove_movie():
     Max_Movies = 10 # 영상 폴더 내 최대 영상 개수
-    list_of_files = glob.glob('/home/kangmugu/Movies/*.mp4') # * means all if need specific format then *.csv
+    list_of_files = glob.glob(directory_movie+'*.mp4') # * means all if need specific format then *.csv
 
     oldest_file = min(list_of_files, key=os.path.getctime)
     if len(list_of_files) > Max_Movies:
@@ -188,7 +192,6 @@ def state_message():
     global water_moter_err #수위모터에 에러가 있는지(bool)
     global cooler_moter_err #스프링쿨러에 에러가 있는지(bool)
 
-    global siren_option #경보에 대한 정보
     global capture_option #영상을 캡처하여 저장/전송할 주기
 
     global connect_err #thread_connect가 비정상적으로 종료되었는지
@@ -199,10 +202,10 @@ def state_message():
     global sound_send_err #thread_sound_send가 비정상적으로 종료되었는지
 
     msg="""[_main] 
-    <현재 습도>
+    <현재 상태>
     -목표 습도: {}
     -실제 습도: {}
-    -캡처 정보: {}
+    -캡처 주기: {}
     
     <현재 시스템 상태 - 디버깅용>
     -water_moter_err: {}
@@ -224,8 +227,10 @@ def print_message():
     state_message()
     
     print("\n".join(_message_queue))
+    _message_queue = []
     print()
     
+
 
 #========================================6) 스레드 선언 구간 ======================================
 
@@ -283,7 +288,6 @@ def _receive():
     global interval
     global socket_is_connected
     global humity_target
-    global siren_option
     global capture_option
     err_cnt = 0 #에러를 카운트할 변수
 
@@ -407,6 +411,12 @@ def _sensor():
     global water_moter_err
     global cooler_moter_err
     
+    water_level_bottom_cnt = 0 #물높이가 최저가 될 때마다 +1
+    humity_low_cnt = 0 #습도가 낮을 때마다 +1
+    
+    water_moter_on = False #모터가 켜져있는지 확인하는 변수
+    cooler_moter_on = False #모터가 켜져있는지 확인하는 변수
+    
     append_message("[_sensor] <시작>")
 
     while not is_end:
@@ -414,16 +424,25 @@ def _sensor():
         try:
             water_moter_err = False
             
-            water_level_bottom = GPIO.input(WL1) #저수탱크 하단 센서
-            water_level_top = GPIO.input(WL2) #저수탱크 상단 센서
+            water_level_bottom = GPIO.input(WL1) #저수탱크 하단 센서에서 값을 받아옴
+            water_level_top = GPIO.input(WL2) #저수탱크 상단 센서에서 값을 받아옴
             
             if water_level_bottom == 0: #저수탱크 하단에 물이 없으면
-                moter_run(ENA_T, IN1_T, IN2_T,True) #모터 작동
-                append_message("[_sensor] 저수탱크 모터 작동")
+                if not water_moter_on: #모터가 꺼져있으면
+                    moter_run(ENA_T, IN1_T, IN2_T,True) #모터 작동
+                    append_message("[_sensor] 저수탱크 모터 작동")
+                
+                else: #모터가 켜져있으면
+                    water_level_bottom_cnt+=1 #물이 없는 상태 카운트
+                    if water_level_bottom_cnt > 10: raise #10회 초과 시 에러처리
 
             elif water_level_top == 1: #저수탱크 상단에 물이 있으면
-                moter_stop(ENA_T, IN1_T, IN2_T) #모터 중지
-                append_message("[_sensor] 저수탱크 모터 중지")
+                if water_moter_on: #모터가 켜져있으면
+                    moter_stop(ENA_T, IN1_T, IN2_T) #모터 중지
+                    append_message("[_sensor] 저수탱크 모터 중지")
+                    
+            else:
+                water_level_bottom_cnt = 0 #카운트 초기화
             
         except Exception as e:
             water_moter_err = True #에러가 발생했다고 체크
@@ -434,14 +453,20 @@ def _sensor():
         try:
             cooler_moter_err = False
             
-            adcValue = AnalogIn(ads, ADS.P1).value #0~1023
-            humity_real = 64-int(adcValue/1023) #수정해야함!!!!!!!!!!!!!!!!!!!!!!
+            adcValue = AnalogIn(ads, ADS.P1).value #습도 센서에서 값을 받아옴
+            humity_real = 64-int(adcValue/1023) #수정해야함!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             
             if humity_real < humity_target: #습도가 목표치보다 낮으면
-                moter_run(ENA_S, IN1_S, IN2_S, True) #스프링쿨러 작동
-                append_message("[_sensor] 스프링쿨러 작동")
+                if not cooler_moter_on: #모터가 꺼져있으면
+                    moter_run(ENA_S, IN1_S, IN2_S, True) #스프링쿨러 작동
+                    append_message("[_sensor] 스프링쿨러 작동")
+                    
+                else: #모터가 켜져있으면
+                    humity_low_cnt+=1 #저습도 상태 카운트
+                    if humity_low_cnt > 10: raise #10회 초과 시 에러처리
 
             else : #그 외엔
+                humity_low_cnt = 0 #카운트 초기화
                 moter_stop(ENA_S, IN1_S, IN2_S) #스프링쿨러 중지
                 append_message("[_sensor] 스프링쿨러 중지")
 
@@ -460,6 +485,7 @@ thread_sensor.daemon = True
 #동작 감지용 스레드(유지)
 def _motion():
     global is_end
+    global url_stream
     thresh = 25 #문턱값
     max_diff = 300 #차이 허용 최대값
     a, b, c = None, None, None #프레임을 담을 변수
@@ -467,23 +493,22 @@ def _motion():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v') #저장 형식
     record = False
     detected = False
-    url = "http://192.168.0.194:8081/?action=stream"
     
     append_message("[_motion] <시작>")
     
     os.system('sh mjpg.sh &')
     append_message("[_motion] 스트리밍 프로그램 시작")
 
-    while not is_end and not url_on(url):
+    while not is_end and not url_on(url_stream):
         append_message("[_motion] 스트리밍 연결 시도 중..")
         sleep(1)
                         
-    cap = cv2.VideoCapture(url)
+    cap = cv2.VideoCapture(url_stream)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     while not is_end and not cap.isOpened():
-        cap = cv2.VideoCapture(url)
+        cap = cv2.VideoCapture(url_stream)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     
@@ -529,21 +554,24 @@ def _motion():
         movietime = datetime.now().strftime("%Y-%m-%d   %H:%M:%S")
         cv2.putText(draw, movietime, (10, 470), cv2.FONT_HERSHEY_DUPLEX, 0.5, (100, 100, 100))
         cv2.imshow('motion', draw)
-        append_message("[_motion] <감지>")
         
         now = datetime.now().strftime("%Y%m%d_%H%M%S")
 
         if detected and not record:
             record = True
             start_time = time()
-            video = cv2.VideoWriter("/home/kangmugu/Movies/" +str(now)+ ".mp4", fourcc, 15.0, (draw.shape[1], draw.shape[0]))
+            video = cv2.VideoWriter(directory_movie +str(now)+ ".mp4", fourcc, 15.0, (draw.shape[1], draw.shape[0]))
             
         if 'video' in locals() and time() > (start_time + 10):
             record = False
             detected = False
             video.release()
             
-        if record: video.write(draw)
+        if record: 
+            append_message("[_motion] <감지>")
+            video.write(draw)
+            
+            #저장된 파일을 전송하는 코드 추가 요망!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             
         a = b
         b = c
@@ -556,6 +584,8 @@ def _motion():
 
 thread_motion = threading.Thread(target=_motion)
 thread_motion.daemon = True
+
+
 
 #========================================7) 실행 구간 ============================================
 print("[_main] <시작>")
