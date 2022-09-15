@@ -385,7 +385,6 @@ def _receive():
                 humity_target = int(tmp[0]) #0~100 사이의 수로 구성
                 siren_option = int(tmp[1]) #"siren" 또는 "tts 읽을 문장"으로 구성
                 motor_option = int(tmp[2])
-                capture_option = int(tmp[3]) #숫자1 숫자2.. 로 구성
             except:
                 pass
 
